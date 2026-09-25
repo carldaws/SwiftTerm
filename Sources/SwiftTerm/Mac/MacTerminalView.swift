@@ -3190,7 +3190,35 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         didSet { scrollSensitivity = max(0.05, scrollSensitivity) }
     }
 
+    /// The axis of the trackpad gesture in progress: `nil` until the gesture
+    /// first moves, then fixed until the next gesture begins, so its momentum
+    /// follows it.
+    private var gestureIsHorizontal: Bool?
+
+    /// Whether this scroll event belongs to the enclosing view rather than the
+    /// terminal. A mostly horizontal gesture still carries some vertical
+    /// movement, so the axis is decided once per gesture instead of per event.
+    private func forwardsScroll(_ event: NSEvent) -> Bool {
+        let isGesture = !event.phase.isEmpty || !event.momentumPhase.isEmpty
+        guard isGesture else {
+            return abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
+        }
+        if event.phase.contains(.began) || event.phase.contains(.mayBegin) {
+            gestureIsHorizontal = nil
+        }
+        if gestureIsHorizontal == nil, event.scrollingDeltaX != 0 || event.scrollingDeltaY != 0 {
+            gestureIsHorizontal = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
+        }
+        return gestureIsHorizontal ?? true
+    }
+
     public override func scrollWheel(with event: NSEvent) {
+        // Events the terminal doesn't use continue up the responder chain, so an
+        // enclosing scroll view still receives horizontal swipes.
+        if forwardsScroll(event) {
+            super.scrollWheel(with: event)
+            return
+        }
         // Preserves the previous `deltaY == 0` early exit, restated against the
         // delta this method now reads. Without it a zero delta would fall into
         // the non-precise branch below and be turned into a spurious -1 line.
