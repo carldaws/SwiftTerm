@@ -148,6 +148,10 @@ private struct FallbackFontKey: Hashable {
 }
 private var fallbackFontCache: [FallbackFontKey: TTFont] = [:]
 
+private func isPrivateUse(_ codePoint: UInt32) -> Bool {
+    (0xE000...0xF8FF).contains(codePoint) || (0xF0000...0xFFFFD).contains(codePoint) || (0x100000...0x10FFFD).contains(codePoint)
+}
+
 private func resolvedFont(for character: Character, base: TTFont) -> TTFont {
     let key = FallbackFontKey(baseFont: ObjectIdentifier(base), character: character)
     if let cached = fallbackFontCache[key] {
@@ -1235,11 +1239,15 @@ extension TerminalView {
                 builder?.append(text: " ", attributes: currentAttributes, cellUTF16Lengths: [1])
                 previousPlaceholder = placeholder
                 previousPlaceholderAttribute = attr
-            } else if !blinkHidden && bidiLayout != nil && TerminalBidi.needsCellIsolation(character) {
+            } else if !blinkHidden && ((bidiLayout != nil && TerminalBidi.needsCellIsolation(character)) || isPrivateUse(renderCodePoint)) {
                 // In BiDi rows, Arabic-script cells and cells holding combining
                 // sequences or emoji are isolated into their own column-anchored
                 // segment so that font-side ligation or extra mark glyphs cannot
                 // shift the columns of the cells that follow them.
+                // Private-use characters are isolated too: no system font covers
+                // them, and on iOS CTLine's own fallback skips the cascade list of
+                // the system monospaced font, so they are drawn with the font the
+                // cascade resolves to instead.
                 flushPending()
                 if let finished = builder?.buildIfNeeded() {
                     segments.append(finished)
